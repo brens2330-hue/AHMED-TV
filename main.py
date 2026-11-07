@@ -1,6 +1,6 @@
 """LANA TV channels API. Public read; mutations require X-Admin-Token."""
-import os, sqlite3
-from contextlib import contextmanager
+import os, sqlite3, secrets, logging, asyncio
+from contextlib import contextmanager, asynccontextmanager
 from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, Header, HTTPException, Depends
@@ -10,8 +10,36 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
 DB_PATH = Path(os.getenv("DATABASE_PATH", str(ROOT / "channels.db")))
-ADMIN_TOKEN = os.getenv("API_ADMIN_TOKEN", "")
-app = FastAPI(title="LANA TV Channels API", version="1.0.0")
+if not os.getenv("API_ADMIN_TOKEN"):
+    # no shared secret configured: generate one so the in-process bot can still manage channels
+    os.environ["API_ADMIN_TOKEN"] = secrets.token_urlsafe(32)
+ADMIN_TOKEN = os.environ["API_ADMIN_TOKEN"]
+log = logging.getLogger("lana")
+
+@asynccontextmanager
+async def lifespan(app):
+    tg = None
+    if os.getenv("RUN_BOT", "1") != "0":
+        try:
+            from bot import build_app
+            tg = build_app()
+            await tg.initialize()
+            me = await tg.bot.get_me()          # fails fast on a bad BOT_TOKEN
+            await tg.bot.delete_webhook(drop_pending_updates=True)  # polling and webhook are exclusive
+            await tg.start()
+            await tg.updater.start_polling()
+            log.warning("Telegram bot @%s polling", me.username)
+        except Exception:
+            log.exception("Telegram bot failed to start; API keeps running")
+            if tg is not None:
+                try: await tg.shutdown()
+                except Exception: pass
+            tg = None
+    yield
+    if tg is not None:
+        await tg.updater.stop(); await tg.stop(); await tg.shutdown()
+
+app = FastAPI(title="LANA TV Channels API", version="1.0.0", lifespan=lifespan)
 
 @contextmanager
 def db():

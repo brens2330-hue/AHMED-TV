@@ -3,9 +3,9 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent/'.env')
-BASE=os.getenv('API_BASE_URL','http://127.0.0.1:8000').rstrip('/')
-TOKEN=os.getenv('API_ADMIN_TOKEN','')
-def headers(): return {'X-Admin-Token':TOKEN}
+BASE=os.getenv('API_BASE_URL') or f"http://127.0.0.1:{os.getenv('PORT') or os.getenv('API_PORT') or '8000'}"
+BASE=BASE.rstrip('/')
+def headers(): return {'X-Admin-Token':os.getenv('API_ADMIN_TOKEN','')}
 async def api_list():
     async with httpx.AsyncClient(timeout=12) as c:
         r=await c.get(BASE+'/api/channels'); r.raise_for_status(); return r.json()['channels']
