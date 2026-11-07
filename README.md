@@ -83,3 +83,9 @@ python3 telegram_bot/run.py
 - فحص توفر تحديث: `GET /api/update?current_version=2`
 - سيرفرات الـ API المسجلة: `GET /api/channel-apis`
 - ملفات التحديث المباشرة: `GET /static/app.apk`
+
+## Railway deployment (correct start command)
+
+This project uses `aiohttp.web` for its REST API and runs Telegram long polling in a background thread from `run.py`. It is not an ASGI/Uvicorn application. Railway Start Command must be `python3 run.py` (set in both `Procfile` and `railway.toml`); do not use `uvicorn main:app`. Uvicorn is included in `requirements.txt` to satisfy environments that check/install it, but the service does not invoke it.
+
+Required Railway Variables: `BOT_TOKEN`, `ADMIN_ID`, and a strong `SECRET_KEY`. Railway provides `PORT`; the app reads it automatically. Add a persistent Railway Volume for the `data/` directory if you need database and uploaded files to survive redeploys. Check the web service at `/` (healthcheck path). Bot API credentials can be checked with Telegram `getMe`; send `/start` to the bot from the configured admin account after deployment and confirm the Worker/Web logs show polling without `401 Unauthorized`, `409 Conflict`, or network errors.

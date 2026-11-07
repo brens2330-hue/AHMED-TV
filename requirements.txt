@@ -1,3 +1,9 @@
-pyTelegramBotAPI>=4.20.0
-aiohttp>=3.9.0
-requests>=2.31.0
+# Telegram bot
+pyTelegramBotAPI>=4.20.0,<5
+# Existing REST API server (aiohttp; does not require Uvicorn)
+aiohttp>=3.9.0,<4
+# Used by existing project code / API integrations
+requests>=2.31.0,<3
+# Included for Railway environments/configurations that invoke ASGI tooling;
+# the current application entry point remains run.py (aiohttp + Telegram polling).
+uvicorn[standard]>=0.30.0,<1
