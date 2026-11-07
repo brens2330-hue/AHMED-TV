@@ -1,4 +1,4 @@
-"""Telegram administration bot; only TELEGRAM_ADMIN_ID can use it."""
+"""Telegram administration bot; only ADMIN_ID can use it."""
 import os, logging
 from pathlib import Path
 from dotenv import load_dotenv
@@ -7,7 +7,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from api_client import api_list, api_add, api_delete
 load_dotenv(Path(__file__).resolve().parent / '.env')
 logging.basicConfig(level=logging.INFO)
-ADMIN_ID=int(os.getenv('TELEGRAM_ADMIN_ID') or os.getenv('ADMIN_ID') or '0')
+ADMIN_ID=int(os.getenv('ADMIN_ID') or '0')
 NAME, URL, IMAGE = range(3)
 KEYBOARD=ReplyKeyboardMarkup([[KeyboardButton('📺 إضافة قناة'),KeyboardButton('🗑️ مسح قناة')],[KeyboardButton('🔗 روابط القنوات'),KeyboardButton('📋 قائمة القنوات')]],resize_keyboard=True)
 
@@ -57,10 +57,14 @@ async def delete_callback(update,context):
     try:
         cid=int(q.data.split(':')[1]); await api_delete(cid); await q.edit_message_text('تم حذف القناة وتحديث قاعدة البيانات.')
     except Exception as e: await q.edit_message_text(f'تعذر الحذف: {e}')
+async def post_init(app):
+    me=await app.bot.get_me()  # raises InvalidToken on a bad BOT_TOKEN
+    await app.bot.delete_webhook(drop_pending_updates=True)  # polling and webhook are exclusive
+    logging.getLogger('bot').warning('Connected to Telegram as @%s; polling',me.username)
 def build_app():
     token=(os.getenv('BOT_TOKEN') or '').strip()
-    if not token or not ADMIN_ID: raise RuntimeError('Set BOT_TOKEN and ADMIN_ID (or TELEGRAM_ADMIN_ID)')
-    app=Application.builder().token(token).base_url(os.getenv("TELEGRAM_API_BASE","https://api.telegram.org/bot")).build()
+    if not token or not ADMIN_ID: raise RuntimeError('Set BOT_TOKEN and ADMIN_ID')
+    app=Application.builder().token(token).post_init(post_init).base_url(os.getenv("TELEGRAM_API_BASE","https://api.telegram.org/bot")).build()
     conv=ConversationHandler(entry_points=[MessageHandler(filters.Regex('^📺 إضافة قناة$'),add_start)],states={NAME:[MessageHandler(filters.TEXT & ~filters.COMMAND,get_name)],URL:[MessageHandler(filters.TEXT & ~filters.COMMAND,get_url)],IMAGE:[MessageHandler(filters.TEXT & ~filters.COMMAND,get_image)]},fallbacks=[CommandHandler('cancel',cancel)])
     app.add_handler(CommandHandler('start',start)); app.add_handler(conv)
     app.add_handler(MessageHandler(filters.Regex('^🗑️ مسح قناة$'),delete_menu)); app.add_handler(MessageHandler(filters.Regex('^🔗 روابط القنوات$'),links_cmd)); app.add_handler(MessageHandler(filters.Regex('^📋 قائمة القنوات$'),list_cmd)); app.add_handler(CallbackQueryHandler(delete_callback,pattern=r'^del:\d+$'))
