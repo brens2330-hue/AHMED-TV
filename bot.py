@@ -1,4 +1,4 @@
-"""Telegram administration bot; only TELEGRAM_ADMIN_ID can use it."""
+"""AHMED-TV Telegram administration bot; access restricted by ADMIN_ID."""
 import os, logging
 from pathlib import Path
 from dotenv import load_dotenv
@@ -7,14 +7,14 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from api_client import api_list, api_add, api_delete
 load_dotenv(Path(__file__).resolve().parent / '.env')
 logging.basicConfig(level=logging.INFO)
-ADMIN_ID=int(os.getenv('TELEGRAM_ADMIN_ID','0'))
+ADMIN_ID=int(os.getenv('ADMIN_ID', os.getenv('TELEGRAM_ADMIN_ID','0')))
 NAME, URL, IMAGE = range(3)
 KEYBOARD=ReplyKeyboardMarkup([[KeyboardButton('📺 إضافة قناة'),KeyboardButton('🗑️ مسح قناة')],[KeyboardButton('🔗 روابط القنوات'),KeyboardButton('📋 قائمة القنوات')]],resize_keyboard=True)
 
 def is_admin(u): return bool(u.effective_user and u.effective_user.id==ADMIN_ID)
 async def start(update:Update, context:ContextTypes.DEFAULT_TYPE):
     if not is_admin(update): return await update.message.reply_text('غير مصرح لك باستخدام لوحة الإدارة.')
-    await update.message.reply_text('مرحباً بك في إدارة قنوات LANA TV.',reply_markup=KEYBOARD)
+    await update.message.reply_text('مرحباً بك في إدارة قنوات AHMED-TV.',reply_markup=KEYBOARD)
 async def add_start(update,context):
     if not is_admin(update): return
     await update.message.reply_text('أرسل اسم القناة:'); return NAME
@@ -57,12 +57,17 @@ async def delete_callback(update,context):
     try:
         cid=int(q.data.split(':')[1]); await api_delete(cid); await q.edit_message_text('تم حذف القناة وتحديث قاعدة البيانات.')
     except Exception as e: await q.edit_message_text(f'تعذر الحذف: {e}')
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logging.error("Unhandled Telegram update error", exc_info=context.error)
+
 def main():
     token=os.getenv('BOT_TOKEN')
-    if not token or not ADMIN_ID: raise RuntimeError('Set BOT_TOKEN and TELEGRAM_ADMIN_ID in .env')
+    if not token or not ADMIN_ID: raise RuntimeError('Railway Variables required: BOT_TOKEN and ADMIN_ID')
+    logging.info('Starting AHMED-TV Telegram polling bot for admin ID %s', ADMIN_ID)
     app=Application.builder().token(token).build()
     conv=ConversationHandler(entry_points=[MessageHandler(filters.Regex('^📺 إضافة قناة$'),add_start)],states={NAME:[MessageHandler(filters.TEXT & ~filters.COMMAND,get_name)],URL:[MessageHandler(filters.TEXT & ~filters.COMMAND,get_url)],IMAGE:[MessageHandler(filters.TEXT & ~filters.COMMAND,get_image)]},fallbacks=[CommandHandler('cancel',cancel)])
     app.add_handler(CommandHandler('start',start)); app.add_handler(conv)
+    app.add_error_handler(on_error)
     app.add_handler(MessageHandler(filters.Regex('^🗑️ مسح قناة$'),delete_menu)); app.add_handler(MessageHandler(filters.Regex('^🔗 روابط القنوات$'),links_cmd)); app.add_handler(MessageHandler(filters.Regex('^📋 قائمة القنوات$'),list_cmd)); app.add_handler(CallbackQueryHandler(delete_callback,pattern=r'^del:\d+$'))
-    app.run_polling()
+    app.run_polling(drop_pending_updates=False, close_loop=True)
 if __name__=='__main__': main()

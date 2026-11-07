@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
 DB_PATH = Path(os.getenv("DATABASE_PATH", str(ROOT / "channels.db")))
 ADMIN_TOKEN = os.getenv("API_ADMIN_TOKEN", "")
-app = FastAPI(title="LANA TV Channels API", version="1.0.0")
+app = FastAPI(title="AHMED-TV Channels API", version="1.0.0")
 
 @contextmanager
 def db():
