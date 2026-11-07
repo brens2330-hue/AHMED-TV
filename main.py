@@ -1,6 +1,7 @@
 """LANA TV channels API. Public read; mutations require X-Admin-Token."""
 import os, sqlite3
-from contextlib import contextmanager
+import asyncio, logging
+from contextlib import contextmanager, asynccontextmanager
 from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, Header, HTTPException, Depends
@@ -11,7 +12,32 @@ ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
 DB_PATH = Path(os.getenv("DATABASE_PATH", str(ROOT / "channels.db")))
 ADMIN_TOKEN = os.getenv("API_ADMIN_TOKEN", "")
-app = FastAPI(title="AHMED-TV Channels API", version="1.0.0")
+if not ADMIN_TOKEN and os.getenv("BOT_TOKEN"):
+    import hashlib
+    ADMIN_TOKEN = hashlib.sha256(("ahmed-tv:" + os.environ["BOT_TOKEN"]).encode()).hexdigest()
+    os.environ["API_ADMIN_TOKEN"] = ADMIN_TOKEN
+os.environ.setdefault("API_BASE_URL", f"http://127.0.0.1:{os.getenv('PORT', '8000')}")
+log = logging.getLogger("ahmed-tv")
+
+@asynccontextmanager
+async def lifespan(_app):
+    """Run the Telegram bot (long polling) in the same process as the API."""
+    bot = None
+    if os.getenv("BOT_TOKEN") and os.getenv("ADMIN_ID", os.getenv("TELEGRAM_ADMIN_ID")):
+        from bot import build_application
+        bot = build_application()
+        await bot.initialize(); await bot.start()
+        await bot.updater.start_polling(drop_pending_updates=False)
+        log.info("Telegram polling started")
+    else:
+        log.error("BOT_TOKEN/ADMIN_ID missing: bot NOT started")
+    try:
+        yield
+    finally:
+        if bot:
+            await bot.updater.stop(); await bot.stop(); await bot.shutdown()
+
+app = FastAPI(title="AHMED-TV Channels API", version="1.0.0", lifespan=lifespan)
 
 @contextmanager
 def db():

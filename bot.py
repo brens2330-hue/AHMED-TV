@@ -60,7 +60,7 @@ async def delete_callback(update,context):
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
     logging.error("Unhandled Telegram update error", exc_info=context.error)
 
-def main():
+def build_application():
     token=os.getenv('BOT_TOKEN')
     if not token or not ADMIN_ID: raise RuntimeError('Railway Variables required: BOT_TOKEN and ADMIN_ID')
     logging.info('Starting AHMED-TV Telegram polling bot for admin ID %s', ADMIN_ID)
@@ -69,5 +69,7 @@ def main():
     app.add_handler(CommandHandler('start',start)); app.add_handler(conv)
     app.add_error_handler(on_error)
     app.add_handler(MessageHandler(filters.Regex('^🗑️ مسح قناة$'),delete_menu)); app.add_handler(MessageHandler(filters.Regex('^🔗 روابط القنوات$'),links_cmd)); app.add_handler(MessageHandler(filters.Regex('^📋 قائمة القنوات$'),list_cmd)); app.add_handler(CallbackQueryHandler(delete_callback,pattern=r'^del:\d+$'))
-    app.run_polling(drop_pending_updates=False, close_loop=True)
+    return app
+def main():
+    build_application().run_polling(drop_pending_updates=False, close_loop=True)
 if __name__=='__main__': main()
