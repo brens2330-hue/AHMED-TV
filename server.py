@@ -232,6 +232,7 @@ def make_app():
 
     uploads_dir = os.path.join(os.path.dirname(__file__), "data", "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
+    app.router.add_static("/uploads/", path=uploads_dir, show_index=False)
     app.router.add_static("/static/uploads/", path=uploads_dir, show_index=False)
 
     return app

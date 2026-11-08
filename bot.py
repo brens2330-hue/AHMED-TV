@@ -8,6 +8,8 @@ from telebot import types
 import json
 import time
 import re
+import os
+from pathlib import Path
 from config import BOT_TOKEN, ADMIN_ID, API_HOST, API_PORT, PUBLIC_URL, APP_PACKAGE, logger
 from database import db
 
@@ -43,31 +45,17 @@ def check_admin(user_id, permission=None):
 # ----------------- Keyboard Generators -----------------
 
 def main_menu_keyboard(user_id):
+    """واجهة إدارة مختصرة حسب طلب المستخدم؛ بقية معالجات الميزات تبقى متاحة داخلياً."""
     kb = types.InlineKeyboardMarkup(row_width=2)
-    b_search = types.InlineKeyboardButton("🔍 بحث عن قناة", callback_data="ch_search_prompt")
-    b_add_ch = types.InlineKeyboardButton("➕ إضافة قنوات (API وقسم)", callback_data="ch_add_unified")
-    
-    b_browse_cat = types.InlineKeyboardButton("📂 تصفح حسب الأقسام", callback_data="ch_browse_by_cat")
-    b_categories = types.InlineKeyboardButton("🗂️ إدارة الأقسام", callback_data="cat_list")
-    
-    b_channels = types.InlineKeyboardButton("📺 كل القنوات", callback_data="ch_list_0")
-    b_links = types.InlineKeyboardButton("🔗 إضافة روابط سريعة", callback_data="ch_universal_link")
-
-    b_apis = types.InlineKeyboardButton("🌐 سيرفرات API", callback_data="menu_apis")
-    b_export = types.InlineKeyboardButton("💾 تصدير ونسخ احتياطي", callback_data="ch_export_menu")
-    
-    b_maint = types.InlineKeyboardButton("🛠️ وضع الصيانة", callback_data="menu_maint")
-    b_updates = types.InlineKeyboardButton("🔄 تحديث التطبيق APK", callback_data="menu_updates")
-    
-    b_stats = types.InlineKeyboardButton("📊 إحصائيات النظام", callback_data="ch_stats_view")
-    b_admins = types.InlineKeyboardButton("👥 إدارة المشرفين", callback_data="menu_admins")
-    
-    kb.row(b_search, b_add_ch)
-    kb.row(b_browse_cat, b_categories)
-    kb.row(b_channels, b_links)
-    kb.row(b_apis, b_export)
-    kb.row(b_maint, b_updates)
-    kb.row(b_stats, b_admins)
+    kb.row(
+        types.InlineKeyboardButton("➕ إضافة قسم", callback_data="cat_add"),
+        types.InlineKeyboardButton("📺 إضافة قنوات داخل قسم", callback_data="ch_add_select_cat")
+    )
+    kb.add(types.InlineKeyboardButton("🗑️ مسح قنوات من قسم", callback_data="new_del_channels"))
+    kb.row(
+        types.InlineKeyboardButton("🛠️ وضع صيانة", callback_data="new_maint_on"),
+        types.InlineKeyboardButton("✅ إيقاف صيانة", callback_data="new_maint_off")
+    )
     return kb
 
 def channels_menu_keyboard():
@@ -216,6 +204,84 @@ def handle_callback(call):
         return
 
     data = call.data
+
+    # New simplified category/channel/maintenance controls.
+    if data == "new_del_channels":
+        if not check_admin(user_id, "channels"):
+            bot.answer_callback_query(call.id, "⚠️ غير مصرح لك بإدارة القنوات", show_alert=True); return
+        cats = db.get_categories()
+        kb = types.InlineKeyboardMarkup(row_width=1)
+        for c in cats:
+            count = len(db.get_channels(c.get("id")))
+            kb.add(types.InlineKeyboardButton(f"📁 {c.get('name', c.get('id'))} ({count})", callback_data=f"new_delcat_{c['id']}"))
+        kb.add(types.InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="main_menu"))
+        txt = "اختر القسم لمسح قناة منه:" if cats else "لا توجد أقسام مضافة حالياً."
+        try: bot.edit_message_text(txt, call.message.chat.id, call.message.message_id, reply_markup=kb)
+        except Exception: bot.send_message(call.message.chat.id, txt, reply_markup=kb)
+        bot.answer_callback_query(call.id); return
+
+    if data.startswith("new_delcat_"):
+        if not check_admin(user_id, "channels"):
+            bot.answer_callback_query(call.id, "⚠️ غير مصرح لك بإدارة القنوات", show_alert=True); return
+        cat_id = data[len("new_delcat_"):]
+        cat = db.get_category(cat_id)
+        if not cat:
+            bot.answer_callback_query(call.id, "القسم غير موجود", show_alert=True); return
+        channels = db.get_channels(cat_id)
+        kb = types.InlineKeyboardMarkup(row_width=1)
+        for ch in channels:
+            kb.add(types.InlineKeyboardButton(f"🗑️ {ch.get('name', 'قناة')}", callback_data=f"new_delprompt_{cat_id}|{ch['id']}"))
+        kb.add(types.InlineKeyboardButton("🔙 اختيار قسم آخر", callback_data="new_del_channels"))
+        txt = f"قنوات قسم «{cat.get('name')}» — اختر قناة للحذف:" if channels else f"لا توجد قنوات في قسم «{cat.get('name')}»."
+        try: bot.edit_message_text(txt, call.message.chat.id, call.message.message_id, reply_markup=kb)
+        except Exception: bot.send_message(call.message.chat.id, txt, reply_markup=kb)
+        bot.answer_callback_query(call.id); return
+
+    if data.startswith("new_delprompt_"):
+        if not check_admin(user_id, "channels"):
+            bot.answer_callback_query(call.id, "⚠️ غير مصرح لك بإدارة القنوات", show_alert=True); return
+        pair = data[len("new_delprompt_"):]
+        cat_id, ch_id = pair.split("|", 1)
+        ch = db.get_channel(ch_id)
+        if not ch:
+            bot.answer_callback_query(call.id, "القناة غير موجودة", show_alert=True); return
+        kb = types.InlineKeyboardMarkup(row_width=2)
+        kb.row(types.InlineKeyboardButton("✅ نعم، احذف", callback_data=f"new_delyes_{cat_id}|{ch_id}"), types.InlineKeyboardButton("❌ إلغاء", callback_data=f"new_delcat_{cat_id}"))
+        try: bot.edit_message_text(f"تأكيد حذف القناة <b>{ch.get('name')}</b> من القسم؟", call.message.chat.id, call.message.message_id, reply_markup=kb)
+        except Exception: bot.send_message(call.message.chat.id, f"تأكيد حذف القناة <b>{ch.get('name')}</b>؟", reply_markup=kb)
+        bot.answer_callback_query(call.id); return
+
+    if data.startswith("new_delyes_"):
+        if not check_admin(user_id, "channels"):
+            bot.answer_callback_query(call.id, "⚠️ غير مصرح لك بإدارة القنوات", show_alert=True); return
+        cat_id, ch_id = data[len("new_delyes_"):].split("|", 1)
+        ok, result = db.delete_channel(ch_id)
+        if not ok:
+            bot.answer_callback_query(call.id, f"❌ تعذر الحذف: {result}", show_alert=True); return
+        bot.answer_callback_query(call.id, "✅ تم حذف القناة", show_alert=True)
+        cat = db.get_category(cat_id)
+        channels = db.get_channels(cat_id)
+        kb = types.InlineKeyboardMarkup(row_width=1)
+        for ch in channels:
+            kb.add(types.InlineKeyboardButton(f"🗑️ {ch.get('name', 'قناة')}", callback_data=f"new_delprompt_{cat_id}|{ch['id']}"))
+        kb.add(types.InlineKeyboardButton("🔙 اختيار قسم آخر", callback_data="new_del_channels"))
+        txt = f"قنوات قسم «{cat.get('name', cat_id)}» — اختر قناة للحذف:" if channels else f"تم حذف القناة. لا توجد قنوات أخرى في قسم «{cat.get('name', cat_id)}»."
+        try: bot.edit_message_text(txt, call.message.chat.id, call.message.message_id, reply_markup=kb)
+        except Exception: bot.send_message(call.message.chat.id, txt, reply_markup=kb)
+        return
+
+    if data in ("new_maint_on", "new_maint_off"):
+        if not check_admin(user_id, "maintenance"):
+            bot.answer_callback_query(call.id, "⚠️ غير مصرح لك بإدارة الصيانة", show_alert=True); return
+        enabled = data == "new_maint_on"
+        old = db.get_maintenance()
+        message = old.get("message") or "التطبيق تحت الصيانة حالياً، نعمل على تحسين تجربتك. يرجى المحاولة لاحقاً"
+        ok, result = db.set_maintenance(enabled, message=message, admin_id=user_id)
+        if ok:
+            bot.answer_callback_query(call.id, "🛠️ تم تفعيل وضع الصيانة" if enabled else "✅ تم إيقاف وضع الصيانة", show_alert=True)
+            call.data = "main_menu"; handle_callback(call)
+        else: bot.answer_callback_query(call.id, f"تعذر تغيير الحالة: {result}", show_alert=True)
+        return
 
     # Return to main menu
     if data == "main_menu":
@@ -486,7 +552,7 @@ def handle_callback(call):
         if not check_admin(user_id, "channels"):
             bot.answer_callback_query(call.id, "⚠️ غير مصرح لك!", show_alert=True)
             return
-        user_states[user_id] = {"action": "wait_cat_name_simple", "data": {}}
+        user_states[user_id] = {"action": "wait_new_category_name", "data": {}}
         text = (
             "📁 <b>إضافة قسم جديد للقنوات</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -2147,6 +2213,16 @@ def handle_document(message):
 
 # ----------------- Text Messages & Multi-Step Wizards -----------------
 
+@bot.message_handler(content_types=["photo"])
+def handle_category_photo(message):
+    """Route Telegram photo uploads into the active category-image wizard."""
+    user_id = message.from_user.id
+    state = user_states.get(user_id, {})
+    if state.get("action") == "wait_new_category_image":
+        return handle_text(message)
+    if check_admin(user_id):
+        bot.reply_to(message, "لا توجد عملية تنتظر صورة حالياً. استخدم زر إضافة قسم أولاً.", reply_markup=main_menu_keyboard(user_id))
+
 @bot.message_handler(func=lambda msg: True)
 def handle_text(message):
     user_id = message.from_user.id
@@ -2159,6 +2235,52 @@ def handle_text(message):
 
     action = state.get("action")
     text = (message.text or "").strip()
+
+    # New category wizard: name then Telegram photo, public image URL, or skip.
+    if action == "wait_new_category_name":
+        if not text:
+            bot.reply_to(message, "أرسل اسم القسم كنص."); return
+        cat_name = text[:100]
+        icon = "📁"
+        if any(k in cat_name for k in ("رياض", "كرة")): icon = "⚽"
+        elif any(k in cat_name for k in ("فيلم", "سينما")): icon = "🎬"
+        cat_id = f"cat{int(time.time())}"
+        state["data"] = {"id": cat_id, "name": cat_name, "icon": icon}
+        state["action"] = "wait_new_category_image"
+        bot.reply_to(message, "أرسل صورة القسم كصورة Telegram، أو رابط صورة يبدأ بـ https://، أو اكتب - بدون صورة.", reply_markup=cancel_keyboard())
+        return
+    if action == "wait_new_category_image":
+        d = state.get("data", {})
+        image_url = ""
+        try:
+            if getattr(message, "photo", None):
+                photo = message.photo[-1]
+                file_info = bot.get_file(photo.file_id)
+                payload = bot.download_file(file_info.file_path)
+                upload_dir = Path(__file__).resolve().parent / "data" / "uploads"
+                upload_dir.mkdir(parents=True, exist_ok=True)
+                filename = f"{d['id']}.jpg"
+                (upload_dir / filename).write_bytes(payload)
+                public_base = (PUBLIC_URL or "").rstrip("/")
+                if (public_base.startswith("https://") or public_base.startswith("http://")) and "0.0.0.0" not in public_base and "127.0.0.1" not in public_base:
+                    image_url = f"{public_base}/uploads/{filename}"
+                else:
+                    image_url = f"/uploads/{filename}"
+            elif text == "-":
+                image_url = ""
+            elif text.startswith("https://"):
+                image_url = text
+            else:
+                bot.reply_to(message, "أرسل صورة، أو رابط https لصورة، أو اكتب - للتخطي.", reply_markup=cancel_keyboard()); return
+            ok, cat = db.add_category(d["id"], d["name"], d.get("icon", "📁"), image=image_url)
+            if not ok:
+                bot.reply_to(message, f"❌ تعذر إنشاء القسم: {cat}", reply_markup=main_menu_keyboard(user_id)); user_states.pop(user_id, None); return
+            user_states.pop(user_id, None)
+            bot.reply_to(message, f"✅ تمت إضافة القسم <b>{cat['name']}</b> بنجاح." + (f"\n🖼️ الصورة: <code>{image_url}</code>" if image_url else "\nبدون صورة."), reply_markup=main_menu_keyboard(user_id))
+        except Exception as e:
+            logger.exception("Failed to create category or save image")
+            bot.reply_to(message, f"❌ تعذرت إضافة القسم/الصورة: {e}\nأعد إرسال الصورة أو رابطها، أو اكتب - للتخطي.", reply_markup=cancel_keyboard())
+        return
 
     # Unified Flow: Create Category on the fly
     if action == "wait_uni_newcat_name":

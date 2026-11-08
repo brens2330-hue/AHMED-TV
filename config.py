@@ -63,6 +63,8 @@ PUBLIC_URL = os.getenv("PUBLIC_URL") or os.getenv("RAILWAY_PUBLIC_DOMAIN")
 if PUBLIC_URL:
     if not PUBLIC_URL.startswith("http"):
         PUBLIC_URL = f"https://{PUBLIC_URL}"
+    elif PUBLIC_URL.startswith("http://") and ("railway.app" in PUBLIC_URL or "railway.internal" in PUBLIC_URL):
+        PUBLIC_URL = "https://" + PUBLIC_URL[len("http://"):]
 else:
     PUBLIC_URL = f"http://{API_HOST}:{API_PORT}"
 

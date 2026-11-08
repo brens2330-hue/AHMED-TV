@@ -89,3 +89,9 @@ python3 telegram_bot/run.py
 This project uses `aiohttp.web` for its REST API and runs Telegram long polling in a background thread from `run.py`. It is not an ASGI/Uvicorn application. Railway Start Command must be `python3 run.py` (set in both `Procfile` and `railway.toml`); do not use `uvicorn main:app`. Uvicorn is included in `requirements.txt` to satisfy environments that check/install it, but the service does not invoke it.
 
 Required Railway Variables: `BOT_TOKEN`, `ADMIN_ID`, and a strong `SECRET_KEY`. Railway provides `PORT`; the app reads it automatically. Add a persistent Railway Volume for the `data/` directory if you need database and uploaded files to survive redeploys. Check the web service at `/` (healthcheck path). Bot API credentials can be checked with Telegram `getMe`; send `/start` to the bot from the configured admin account after deployment and confirm the Worker/Web logs show polling without `401 Unauthorized`, `409 Conflict`, or network errors.
+
+## لوحة الإدارة الجديدة وإعداد Railway
+
+لوحة `/start` أصبحت تعرض أزراراً لإضافة قسم، إضافة قناة داخل قسم، حذف قناة من قسم، وتفعيل/إيقاف الصيانة. إنشاء القسم يطلب الاسم ثم صورة Telegram أو رابط صورة HTTPS أو `-` للتخطي. تظل بقية وظائف البوت ومعالجات API موجودة في المشروع.
+
+في Railway استخدم Start Command: `python3 run.py` (موجود في `Procfile` و`railway.toml`). المشروع يستخدم `aiohttp` لتشغيل REST API والبوت عبر Telegram long polling؛ لا تستخدم `uvicorn main:app`. أضف `BOT_TOKEN` و`ADMIN_ID` و`SECRET_KEY` كمتغيرات سرية في إعدادات Railway، واربط Volume دائماً بمجلد `data/` للاحتفاظ بقاعدة البيانات والصور. مسار الصور العامة هو `/uploads/<filename>`.
